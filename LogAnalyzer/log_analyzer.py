@@ -56,70 +56,68 @@ def find_last_log(config):
     files_dict = {re.search(r'\d{8}', name).group(0): name for name in files_iterator if 'nginx-access-ui' in name}
     if not files_dict:
         return False, 'No one log file for parsing has been found!'
+
     last_date = sorted(list(files_dict.keys()))[-1]
+    log_ext = files_dict[last_date].split('.')[-1]
+    allowed_extensions = ['gz', 'bz2', f'log-{last_date}']
+    if log_ext not in allowed_extensions:
+        return False, 'Found log file has unsupported data format!'
     parse_last_date = datetime.strptime(last_date, '%Y%m%d')
     format_last_date = datetime.strftime(parse_last_date, '%Y.%m.%d')
-    Logfile = namedtuple('Logfile', 'name date')
-    last_log = Logfile(files_dict[last_date],format_last_date)
+    operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
+    Logfile = namedtuple('Logfile', 'name date operator')
+    last_log = Logfile(files_dict[last_date], format_last_date, operator)
     return last_log, 'Required log file has been found!'
 
 
-def parse_log(log_file, config):
-    ext = log_file.name.split('.')[-1]
-    operator = gzip.open if ext == 'gz' else bz2.open if ext == 'bz2' else open
-
-    with operator(os.path.join(config['LOG_DIR'], log_file.name), 'rb') as file:
-        log_gen = (i for i in file)
+def log_parser(log_file, config):
+    with log_file.operator(os.path.join(config['LOG_DIR'], log_file.name), 'rb') as file:
+        string_generator = (i for i in file)
 
         urls_dict = {}
-        total_queries, total_queries_time, fails = 0, 0, 0
         counter_urls = Counter()
         report_urls_dict = OrderedDict()
+        parsed_queries, parsed_queries_time, fails = 0, 0, 0
 
-        for log_str in log_gen:
-            log_str = log_str.decode()
+        for str_i in string_generator:
+            str_i = str_i.decode()
             try:
-                url = log_str.split('HTTP')[0].split()[-1]
-                query_time = float(log_str.split()[-1])
+                url = str_i.split('HTTP')[0].split()[-1]
+                query_time = float(str_i.split()[-1])
             except Exception as ex:
-                print(ex)
-                print('----------------')
-                print(log_str)
-                print('----------------')
+                logging.error(ex)
                 fails += 1
                 continue
             counter_urls[url] += query_time
+            urls_dict.setdefault(url, []).append(query_time)
 
-            urls_dict.setdefault(url, [])
-            urls_dict[url].append(query_time)
+            parsed_queries += 1
+            parsed_queries_time += query_time
 
-            total_queries += 1
-            total_queries_time += query_time
-
-        print('counter: ', sys.getsizeof(counter_urls))
-        print('urls dict: ', sys.getsizeof(urls_dict))
         print('fails: ', fails)
+        print('total queries :', parsed_queries)
 
+        if fails * 100 / (parsed_queries + fails) >= config.get('TOTAL_FAILS', 51):
+            return False, 'Number of failed operations exceeded the allowed threshold!'
 
-        for key, value in counter_urls.most_common(1000):
+        UrlInfo = namedtuple('UrlInfo', 'count count_perc time_sum time_perc time_avg time_max time_med')
+
+        for key, value in counter_urls.most_common(config['REPORT_SIZE']):
             count = len(urls_dict[key])
-            count_perc = (count / total_queries) * 100
-            time_perc = (value / total_queries_time) * 100
+            count_perc = count * 100 / (parsed_queries + fails)
+            time_sum = value
+            time_perc = value * 100 / parsed_queries_time
             time_avg = mean(urls_dict[key])
             time_max = max(urls_dict[key])
             time_med = median(urls_dict[key])
 
-            report_urls_dict[key] = {
-                'count': count,
-                'count_perc': round(count_perc, 3),
-                'time_perc': round(time_perc, 3),
-                'time_avg': round(time_avg, 3),
-                'time_max': round(time_max, 3),
-                'time_med': round(time_med, 3),
-            }
+            settings = [count, count_perc, time_sum, time_perc, time_avg, time_max, time_med]
+            settings = list(map(lambda x: round(x, 3), settings))
+
+            report_urls_dict[key] = UrlInfo(*settings)
 
         pprint(report_urls_dict)
-        print('report dict: ', sys.getsizeof(report_urls_dict))
+
 
 
 
@@ -139,7 +137,7 @@ def main():
         sys.exit('Forced termination. No tasks!')
     logging.info(last_log)
 
-    parse_log(last_log, config)
+    log_parser(last_log, config)
 
 
 
