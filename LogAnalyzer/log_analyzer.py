@@ -37,7 +37,7 @@ def update_config(conf, conf_path):
             with open(conf_path, 'r') as f:
                 external_config = json.load(f)
         except json.decoder.JSONDecodeError:
-            return False, f"External config '{conf_path}' has not been parsed!"
+            return False, f"External config '{conf_path}' has not been read!"
         conf.update(external_config)
         return True, 'Config has been successfully updated!'
     elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
@@ -116,7 +116,7 @@ def log_parser(log_file, conf):
                 'time_med': time_med,
             }
             report_urls_list.append(report_url)
-        pprint(report_urls_list)
+        # pprint(report_urls_list)
         return report_urls_list, 'Parsing is done!'
 
 def generate_report(parsed_table):
@@ -137,7 +137,7 @@ def main():
     logging.info(message)
     if not last_log:
         sys.exit('Forced termination. No tasks!')
-    logging.info(last_log)
+    # logging.info(last_log)
 
     parsed_table, message = log_parser(last_log, config)
     logging.info(message)
