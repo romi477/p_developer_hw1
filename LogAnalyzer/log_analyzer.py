@@ -15,11 +15,11 @@ config = {
     "LOG_DIR": "./log"
 }
 
-def set_logging(config):
+def set_logging(conf):
     logging.basicConfig(
-        filename=config.get('LOG_FILE'),
+        filename=conf.get('LOG_FILE'),
         filemode='w',
-        level=config.get('LOG_LEVEL', 'DEBUG'),
+        level=conf.get('LOG_LEVEL', 'DEBUG'),
         format='[%(asctime)s] %(levelname)s: %(message)s',
         datefmt='%Y.%m.%d %H:%M:%S',
     )
@@ -31,22 +31,22 @@ def get_external_config():
     namespace = parser.parse_args()
     return namespace.config
 
-def update_config(config, config_path):
-    if os.path.exists(config_path) and os.path.getsize(config_path) > 0:
+def update_config(conf, conf_path):
+    if os.path.exists(conf_path) and os.path.getsize(conf_path) > 0:
         try:
-            with open(config_path, 'r') as f:
+            with open(conf_path, 'r') as f:
                 external_config = json.load(f)
         except json.decoder.JSONDecodeError:
-            return False, f"External config '{config_path}' has not been parsed!"
-        config.update(external_config)
+            return False, f"External config '{conf_path}' has not been parsed!"
+        conf.update(external_config)
         return True, 'Config has been successfully updated!'
-    elif os.path.exists(config_path) and os.path.getsize(config_path) == 0:
-        return True, f"External config '{config_path}' is empty, but it is OK!"
+    elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
+        return True, f"External config '{conf_path}' is empty, but it is OK!"
     else:
-        return False, f"External config '{config_path}' has not been found!"
+        return False, f"External config '{conf_path}' has not been found!"
 
-def find_last_log(config):
-    log_dir = config['LOG_DIR']
+def find_last_log(conf):
+    log_dir = conf['LOG_DIR']
     try:
         files_iterator = os.listdir(log_dir)
     except FileNotFoundError:
@@ -70,13 +70,13 @@ def find_last_log(config):
     return last_log, 'Required log file has been found!'
 
 
-def log_parser(log_file, config):
-    with log_file.operator(os.path.join(config['LOG_DIR'], log_file.name), 'rb') as file:
+def log_parser(log_file, conf):
+    with log_file.operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
         string_generator = (i for i in file)
 
         urls_dict = {}
+        report_urls_list = []
         counter_urls = Counter()
-        report_urls_dict = OrderedDict()
         parsed_queries, parsed_queries_time, fails = 0, 0, 0
 
         for str_i in string_generator:
@@ -94,37 +94,39 @@ def log_parser(log_file, config):
             parsed_queries += 1
             parsed_queries_time += query_time
 
-        print('fails: ', fails)
-        print('total queries :', parsed_queries)
-
-        if fails * 100 / (parsed_queries + fails) >= config.get('TOTAL_FAILS', 51):
+        if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
             return False, 'Number of failed operations exceeded the allowed threshold!'
 
-        UrlInfo = namedtuple('UrlInfo', 'count count_perc time_sum time_perc time_avg time_max time_med')
-
-        for key, value in counter_urls.most_common(config['REPORT_SIZE']):
+        for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
             count = len(urls_dict[key])
             count_perc = count * 100 / (parsed_queries + fails)
-            time_sum = value
             time_perc = value * 100 / parsed_queries_time
             time_avg = mean(urls_dict[key])
             time_max = max(urls_dict[key])
             time_med = median(urls_dict[key])
 
-            settings = [count, count_perc, time_sum, time_perc, time_avg, time_max, time_med]
-            settings = list(map(lambda x: round(x, 3), settings))
+            report_url = {
+                'url': key,
+                'time_sum': value,
+                'count': count,
+                'count_perc': round(count_perc, 3),
+                'time_perc': round(time_perc, 3),
+                'time_avg': time_avg,
+                'time_max': time_max,
+                'time_med': time_med,
+            }
+            report_urls_list.append(report_url)
+        pprint(report_urls_list)
+        return report_urls_list, 'Parsing is done!'
 
-            report_urls_dict[key] = UrlInfo(*settings)
-
-        pprint(report_urls_dict)
-
-
+def generate_report(parsed_table):
+    pass
 
 
 def main():
-    config_path = get_external_config()
-    if config_path:
-        status, message = update_config(config, config_path)
+    conf_path = get_external_config()
+    if conf_path:
+        status, message = update_config(config, conf_path)
         print(message)
         if not status:
             sys.exit('Emergency stop!')
@@ -137,7 +139,12 @@ def main():
         sys.exit('Forced termination. No tasks!')
     logging.info(last_log)
 
-    log_parser(last_log, config)
+    parsed_table, message = log_parser(last_log, config)
+    logging.info(message)
+    if not parsed_table:
+        sys.exit('Something went wrong at the parsing time!')
+
+    generate_report(parsed_table)
 
 
 

@@ -4,5 +4,5 @@
   "LOG_DIR": "log",
   "LOG_FILE": "./logfile.log",
   "LOG_LEVEL": "DEBUG",
-  "TOTAL_FAILS": "50"
+  "TOTAL_FAILS": "51"
 }
