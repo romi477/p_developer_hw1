@@ -9,3 +9,5 @@ LogAnalyzer/con.jSon
 LogAnalyzer/co.txt
 LogAnalyzer/draft.py
 LogAnalyzer/draft2.py
+LogAnalyzer/reports
+LogAnalyzer/__pycache__/

@@ -1,7 +1,7 @@
 {
   "REPORT_SIZE": 1000,
   "REPORT_DIR": "./reports",
-  "LOG_DIR": "log",
+  "LOG_DIR": "./log",
   "LOG_FILE": "./logfile.log",
   "LOG_LEVEL": "DEBUG",
   "TOTAL_FAILS": 51

@@ -1,12 +1,11 @@
-import os, sys, argparse
+import sys, os, argparse
 import gzip, bz2
 import json
 import re
 import logging
 from datetime import datetime
-from collections import namedtuple, Counter, OrderedDict
+from collections import namedtuple, Counter
 from statistics import mean, median
-from pprint import pprint
 
 
 config = {
@@ -23,7 +22,6 @@ def set_logging(conf):
         format='[%(asctime)s] %(levelname)s: %(message)s',
         datefmt='%Y.%m.%d %H:%M:%S',
     )
-
 
 def get_external_config():
     parser = argparse.ArgumentParser()
@@ -51,6 +49,7 @@ def find_last_log(conf):
         files_iterator = os.listdir(log_dir)
     except FileNotFoundError:
         return False, f"Logs directory '{log_dir}' does not exist!"
+
     if not files_iterator:
         return False, f"Logs directory '{log_dir}' is empty!"
     files_dict = {re.search(r'\d{8}', name).group(0): name for name in files_iterator if 'nginx-access-ui' in name}
@@ -67,8 +66,7 @@ def find_last_log(conf):
     operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
     Logfile = namedtuple('Logfile', 'name date operator')
     last_log = Logfile(files_dict[last_date], format_last_date, operator)
-    return last_log, 'Required log file has been found!'
-
+    return last_log, f"Required log file '{files_dict[last_date]}' has been found."
 
 def log_parser(log_file, conf):
     with log_file.operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
@@ -80,7 +78,7 @@ def log_parser(log_file, conf):
         parsed_queries, parsed_queries_time, fails = 0, 0, 0
 
         for str_i in string_generator:
-            str_i = str_i.decode()
+            str_i = str_i.decode('utf-8')
             try:
                 url = str_i.split('HTTP')[0].split()[-1]
                 query_time = float(str_i.split()[-1])
@@ -107,45 +105,80 @@ def log_parser(log_file, conf):
 
             report_url = {
                 'url': key,
-                'time_sum': value,
+                'time_sum': round(value, 3),
                 'count': count,
                 'count_perc': round(count_perc, 3),
                 'time_perc': round(time_perc, 3),
-                'time_avg': time_avg,
-                'time_max': time_max,
-                'time_med': time_med,
+                'time_avg': round(time_avg, 3),
+                'time_max': round(time_max, 3),
+                'time_med': round(time_med, 3),
             }
             report_urls_list.append(report_url)
-        # pprint(report_urls_list)
-        return report_urls_list, 'Parsing is done!'
+        return report_urls_list, 'Parsing has been successfully completed.'
 
-def generate_report(parsed_table):
-    pass
+def generate_report(parsed_table, report_name, template_name):
+    try:
+        with open(template_name, 'r', encoding='utf-8') as file:
+            read_template = file.read()
+    except Exception as ex:
+        logging.error(ex)
+        return False, f"Report template '{template_name}' open error!"
+
+    report = read_template.replace('$table_json', str(parsed_table))
+
+    try:
+        with open(report_name, 'w') as file:
+            file.write(report)
+    except Exception as ex:
+        logging.error(ex)
+        return False, 'Report has been generated but not dumped!'
+    return True, f"Report '{report_name}' has been successfully dumped."
 
 
 def main():
-    conf_path = get_external_config()
-    if conf_path:
-        status, message = update_config(config, conf_path)
-        print(message)
-        if not status:
-            sys.exit('Emergency stop!')
+    external_config_path = get_external_config()
 
-    set_logging(config)
+    if not external_config_path:
+        set_logging(config)
+    else:
+        status, message = update_config(config, external_config_path)
+        print(type(update_config(config, external_config_path)))
+        if not status:
+            sys.exit(f"Emergency stop! {message}")
+        set_logging(config)
+        logging.info(message)
 
     last_log, message = find_last_log(config)
-    logging.info(message)
     if not last_log:
+        logging.error(message)
         sys.exit('Forced termination. No tasks!')
-    # logging.info(last_log)
+    logging.info(message)
+
+    report_path = os.path.join(config['REPORT_DIR'], f'report-{last_log.date}.html')
+    if os.path.exists(config['REPORT_DIR']):
+        if os.path.exists(report_path):
+            logging.info(f"Required report '{report_path}' already exists.")
+            sys.exit('Forced termination. No tasks!')
+    else:
+        os.makedirs(config['REPORT_DIR'])
 
     parsed_table, message = log_parser(last_log, config)
-    logging.info(message)
     if not parsed_table:
-        sys.exit('Something went wrong at the parsing time!')
+        logging.error(message)
+        sys.exit('Something went wrong when parsing log file!')
+    logging.info(message)
 
-    generate_report(parsed_table)
+    template_name = 'report.html'
+    if not os.path.exists(template_name):
+        logging.error(f"Report template '{template_name}' has not been found!")
+        sys.exit('Emergency stop!')
 
+    status, message = generate_report(parsed_table, report_path, template_name)
+    if not status:
+        logging.error(message)
+        sys.exit('Emergency stop!')
+    logging.info(message)
+    logging.info('Script has been completed.')
 
 
 if __name__ == "__main__":
