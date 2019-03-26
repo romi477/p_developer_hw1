@@ -16,8 +16,8 @@ class TestUpdateConfig(unittest.TestCase):
                 "error4": "./logfile.log",
                 "error5": "DEBUG",
                 "error6": 51
-            },
-            'notexists_dir/config.json'), tuple)
+            }, 'notexists_dir/config.json'
+        ), tuple)
 
 
 

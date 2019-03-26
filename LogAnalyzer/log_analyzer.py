@@ -58,9 +58,8 @@ def find_last_log(conf):
 
     last_date = sorted(list(files_dict.keys()))[-1]
     log_ext = files_dict[last_date].split('.')[-1]
-    allowed_extensions = ['gz', 'bz2', f'log-{last_date}']
-    if log_ext not in allowed_extensions:
-        return False, 'Found log file has unsupported data format!'
+    if log_ext not in ['gz', 'bz2', f'log-{last_date}']:
+        return False, f"Found log file '{files_dict[last_date]}' has unsupported data format!"
     parse_last_date = datetime.strptime(last_date, '%Y%m%d')
     format_last_date = datetime.strftime(parse_last_date, '%Y.%m.%d')
     operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
@@ -142,7 +141,6 @@ def main():
         set_logging(config)
     else:
         status, message = update_config(config, external_config_path)
-        print(type(update_config(config, external_config_path)))
         if not status:
             sys.exit(f"Emergency stop! {message}")
         set_logging(config)
