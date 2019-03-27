@@ -1,7 +1,7 @@
 .idea/
 venv/
-log/
 log2/
+log_/
 log3/
 *.log
 LogAnalyzer/con.json
@@ -9,5 +9,6 @@ LogAnalyzer/con.jSon
 LogAnalyzer/co.txt
 LogAnalyzer/draft.py
 LogAnalyzer/draft2.py
+LogAnalyzer/myreport.html
 LogAnalyzer/reports
 LogAnalyzer/__pycache__/

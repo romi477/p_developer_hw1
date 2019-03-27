@@ -36,8 +36,10 @@ def update_config(conf, conf_path):
                 external_config = json.load(f)
         except json.decoder.JSONDecodeError:
             return False, f"External config '{conf_path}' has not been read!"
+
         conf.update(external_config)
         return True, 'Config has been successfully updated!'
+
     elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
         return True, f"External config '{conf_path}' is empty, but it is OK!"
     else:
@@ -52,6 +54,7 @@ def find_last_log(conf):
 
     if not files_iterator:
         return False, f"Logs directory '{log_dir}' is empty!"
+
     files_dict = {re.search(r'\d{8}', name).group(0): name for name in files_iterator if 'nginx-access-ui' in name}
     if not files_dict:
         return False, 'No one log file for parsing has been found!'
@@ -60,6 +63,7 @@ def find_last_log(conf):
     log_ext = files_dict[last_date].split('.')[-1]
     if log_ext not in ['gz', 'bz2', f'log-{last_date}']:
         return False, f"Found log file '{files_dict[last_date]}' has unsupported data format!"
+
     parse_last_date = datetime.strptime(last_date, '%Y%m%d')
     format_last_date = datetime.strftime(parse_last_date, '%Y.%m.%d')
     operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
@@ -109,13 +113,14 @@ def log_parser(log_file, conf):
                 'count_perc': round(count_perc, 3),
                 'time_perc': round(time_perc, 3),
                 'time_avg': round(time_avg, 3),
+
                 'time_max': round(time_max, 3),
                 'time_med': round(time_med, 3),
             }
             report_urls_list.append(report_url)
         return report_urls_list, 'Parsing has been successfully completed.'
 
-def generate_report(parsed_table, report_name, template_name):
+def generate_report(parsed_list, report_name, template_name):
     try:
         with open(template_name, 'r', encoding='utf-8') as file:
             read_template = file.read()
@@ -123,7 +128,7 @@ def generate_report(parsed_table, report_name, template_name):
         logging.error(ex)
         return False, f"Report template '{template_name}' open error!"
 
-    report = read_template.replace('$table_json', str(parsed_table))
+    report = read_template.replace('$table_json', str(parsed_list))
 
     try:
         with open(report_name, 'w') as file:
@@ -131,6 +136,7 @@ def generate_report(parsed_table, report_name, template_name):
     except Exception as ex:
         logging.error(ex)
         return False, 'Report has been generated but not dumped!'
+
     return True, f"Report '{report_name}' has been successfully dumped."
 
 
@@ -160,8 +166,8 @@ def main():
     else:
         os.makedirs(config['REPORT_DIR'])
 
-    parsed_table, message = log_parser(last_log, config)
-    if not parsed_table:
+    parsed_list, message = log_parser(last_log, config)
+    if not parsed_list:
         logging.error(message)
         sys.exit('Something went wrong when parsing log file!')
     logging.info(message)
@@ -171,7 +177,7 @@ def main():
         logging.error(f"Report template '{template_name}' has not been found!")
         sys.exit('Emergency stop!')
 
-    status, message = generate_report(parsed_table, report_path, template_name)
+    status, message = generate_report(parsed_list, report_path, template_name)
     if not status:
         logging.error(message)
         sys.exit('Emergency stop!')
