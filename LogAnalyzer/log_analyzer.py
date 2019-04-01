@@ -34,16 +34,16 @@ def update_config(conf, conf_path):
         try:
             with open(conf_path, 'r') as f:
                 external_config = json.load(f)
-        except json.decoder.JSONDecodeError:
-            return False, f"External config '{conf_path}' has not been read!"
-
+        except Exception as ex:
+            raise Exception(f"External config '{conf_path}' has not been read.\n{ex}")
         conf.update(external_config)
-        return True, 'Config has been successfully updated!'
+        return 'Config has been successfully updated!'
 
     elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
-        return True, f"External config '{conf_path}' is empty, but it is OK!"
+        return f"External config '{conf_path}' is empty, but it is OK!"
     else:
-        return False, f"External config '{conf_path}' has not been found!"
+        raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
+
 
 def find_last_log(conf):
     log_dir = conf['LOG_DIR']
@@ -143,14 +143,11 @@ def generate_report(parsed_list, report_name, template_name):
 def main():
     external_config_path = get_external_config()
 
-    if not external_config_path:
-        set_logging(config)
-    else:
-        status, message = update_config(config, external_config_path)
-        if not status:
-            sys.exit(f"Emergency stop! {message}")
-        set_logging(config)
-        logging.info(message)
+    if external_config_path:
+        print(update_config(config, external_config_path))
+
+    set_logging(config)
+
 
     last_log, message = find_last_log(config)
     if not last_log:
@@ -186,5 +183,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-
+    try:
+        main()
+    except Exception as ex:
+        logging.error('ERROR!!!', ex)
