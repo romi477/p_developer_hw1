@@ -36,11 +36,12 @@ def update_config(conf, conf_path):
                 external_config = json.load(f)
         except Exception as ex:
             raise Exception(f"External config '{conf_path}' has not been read.\n{ex}")
+
         conf.update(external_config)
-        return 'Config has been successfully updated!'
+        print('Config has been successfully updated!')
 
     elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
-        return f"External config '{conf_path}' is empty, but it is OK!"
+        print(f"External config '{conf_path}' is empty, but it is OK!")
     else:
         raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
 
@@ -50,26 +51,36 @@ def find_last_log(conf):
     try:
         files_iterator = os.listdir(log_dir)
     except FileNotFoundError:
-        return False, f"Logs directory '{log_dir}' does not exist!"
+        logging.error(f"Logs directory '{log_dir}' does not exist!")
+        return
 
     if not files_iterator:
-        return False, f"Logs directory '{log_dir}' is empty!"
+        logging.info(f"Logs directory '{log_dir}' is empty!")
+        return
 
     files_dict = {re.search(r'\d{8}', name).group(0): name for name in files_iterator if 'nginx-access-ui' in name}
     if not files_dict:
-        return False, 'No one log file for parsing has been found!'
+        logging.info('No one log file for parsing has been found!')
+        return
 
     last_date = sorted(list(files_dict.keys()))[-1]
     log_ext = files_dict[last_date].split('.')[-1]
     if log_ext not in ['gz', 'bz2', f'log-{last_date}']:
-        return False, f"Found log file '{files_dict[last_date]}' has unsupported data format!"
+        logging.info(f"Found log file '{files_dict[last_date]}' has unsupported data format!")
+        return
 
-    parse_last_date = datetime.strptime(last_date, '%Y%m%d')
+    try:
+        parse_last_date = datetime.strptime(last_date, '%Y%m%d')
+    except ValueError as ex:
+        logging.error(ex)
+        return
+
     format_last_date = datetime.strftime(parse_last_date, '%Y.%m.%d')
-    operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
-    Logfile = namedtuple('Logfile', 'name date operator')
-    last_log = Logfile(files_dict[last_date], format_last_date, operator)
-    return last_log, f"Required log file '{files_dict[last_date]}' has been found."
+    # operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
+    Logfile = namedtuple('Logfile', 'name date')
+    last_log = Logfile(files_dict[last_date], format_last_date)
+    logging.info(f"Required log file '{files_dict[last_date]}' has been found.")
+    return last_log
 
 def log_parser(log_file, conf):
     with log_file.operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
@@ -144,16 +155,14 @@ def main():
     external_config_path = get_external_config()
 
     if external_config_path:
-        print(update_config(config, external_config_path))
+        update_config(config, external_config_path)
 
     set_logging(config)
 
+    last_log = find_last_log(config)
 
-    last_log, message = find_last_log(config)
     if not last_log:
-        logging.error(message)
-        sys.exit('Forced termination. No tasks!')
-    logging.info(message)
+        sys.exit('Forced termination!')
 
     report_path = os.path.join(config['REPORT_DIR'], f'report-{last_log.date}.html')
     if os.path.exists(config['REPORT_DIR']):
@@ -163,27 +172,27 @@ def main():
     else:
         os.makedirs(config['REPORT_DIR'])
 
-    parsed_list, message = log_parser(last_log, config)
-    if not parsed_list:
-        logging.error(message)
-        sys.exit('Something went wrong when parsing log file!')
-    logging.info(message)
-
-    template_name = 'report.html'
-    if not os.path.exists(template_name):
-        logging.error(f"Report template '{template_name}' has not been found!")
-        sys.exit('Emergency stop!')
-
-    status, message = generate_report(parsed_list, report_path, template_name)
-    if not status:
-        logging.error(message)
-        sys.exit('Emergency stop!')
-    logging.info(message)
-    logging.info('Script has been completed.')
+    # parsed_list, message = log_parser(last_log, config)
+    # if not parsed_list:
+    #     logging.error(message)
+    #     sys.exit('Something went wrong when parsing log file!')
+    # logging.info(message)
+    #
+    # template_name = 'report.html'
+    # if not os.path.exists(template_name):
+    #     logging.error(f"Report template '{template_name}' has not been found!")
+    #     sys.exit('Emergency stop!')
+    #
+    # status, message = generate_report(parsed_list, report_path, template_name)
+    # if not status:
+    #     logging.error(message)
+    #     sys.exit('Emergency stop!')
+    # logging.info(message)
+    # logging.info('Script has been completed.')
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as ex:
-        logging.error('ERROR!!!', ex)
+        logging.error(ex)

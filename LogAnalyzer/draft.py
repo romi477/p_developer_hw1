@@ -38,10 +38,10 @@ def update_config(conf, conf_path):
             raise Exception(f"External config '{conf_path}' has not been read.\n{ex}")
 
         conf.update(external_config)
-        return 'Config has been successfully updated!'
+        print('Config has been successfully updated!')
 
     elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
-        return f"External config '{conf_path}' is empty, but it is OK!"
+        print(f"External config '{conf_path}' is empty, but it is OK!")
     else:
         raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
 
@@ -50,7 +50,7 @@ def main():
     external_config_path = get_external_config()
 
     if external_config_path:
-        print(update_config(config, external_config_path))
+        update_config(config, external_config_path)
 
     set_logging(config)
 
@@ -59,5 +59,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as ex:
-        print('ERROR!!!', ex)
-        # logging.error('ERROR!!!', ex)
+        # print('ERROR!!!', ex)
+        logging.error(ex)
