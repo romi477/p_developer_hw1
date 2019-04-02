@@ -45,20 +45,19 @@ def update_config(conf, conf_path):
     else:
         raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
 
-
 def find_last_log(conf):
     log_dir = conf['LOG_DIR']
     try:
-        files_iterator = os.listdir(log_dir)
+        files = os.listdir(log_dir)
     except FileNotFoundError:
         logging.error(f"Logs directory '{log_dir}' does not exist!")
         return
 
-    if not files_iterator:
+    if not files:
         logging.info(f"Logs directory '{log_dir}' is empty!")
         return
 
-    files_dict = {re.search(r'\d{8}', name).group(0): name for name in files_iterator if 'nginx-access-ui' in name}
+    files_dict = {re.search(r'\d{8}', name).group(0): name for name in files if 'nginx-access-ui' in name}
     if not files_dict:
         logging.info('No one log file for parsing has been found!')
         return
@@ -76,60 +75,69 @@ def find_last_log(conf):
         return
 
     format_last_date = datetime.strftime(parse_last_date, '%Y.%m.%d')
-    # operator = gzip.open if log_ext == 'gz' else bz2.open if log_ext == 'bz2' else open
-    Logfile = namedtuple('Logfile', 'name date')
-    last_log = Logfile(files_dict[last_date], format_last_date)
+    Logfile = namedtuple('Logfile', 'name date ext')
+    last_log = Logfile(files_dict[last_date], format_last_date, log_ext)
     logging.info(f"Required log file '{files_dict[last_date]}' has been found.")
     return last_log
 
+def parse_string(stri):
+    stri = stri.decode('utf-8')
+    try:
+        url = stri.split('HTTP')[0].split()[-1]
+        query_time = float(stri.rsplit(maxsplit=1)[-1])
+    except Exception as ex:
+        logging.error(ex)
+        return False
+    return {'url': url, 'query_time': query_time}
+
+def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
+    count = len(urls_dict[key])
+    count_perc = count * 100 / (parsed_queries + fails)
+    time_perc = value * 100 / parsed_queries_time
+    time_avg = mean(urls_dict[key])
+    time_max = max(urls_dict[key])
+    time_med = median(urls_dict[key])
+
+    report_url = {
+        'url': key,
+        'time_sum': round(value, 3),
+        'count': count,
+        'count_perc': round(count_perc, 3),
+        'time_perc': round(time_perc, 3),
+        'time_avg': round(time_avg, 3),
+        'time_max': round(time_max, 3),
+        'time_med': round(time_med, 3),
+    }
+    return report_url
+
 def log_parser(log_file, conf):
-    with log_file.operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
-        string_generator = (i for i in file)
+    urls_dict = {}
+    report_urls_list = []
+    counter_urls = Counter()
+    parsed_queries, parsed_queries_time, fails = 0, 0, 0
 
-        urls_dict = {}
-        report_urls_list = []
-        counter_urls = Counter()
-        parsed_queries, parsed_queries_time, fails = 0, 0, 0
-
-        for str_i in string_generator:
-            str_i = str_i.decode('utf-8')
-            try:
-                url = str_i.split('HTTP')[0].split()[-1]
-                query_time = float(str_i.split()[-1])
-            except Exception as ex:
-                logging.error(ex)
+    operator = gzip.open if log_file.ext == 'gz' else bz2.open if log_file.ext == 'bz2' else open
+    with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
+        for stri in (s for s in file):
+            stri_parse = parse_string(stri)
+            if not stri_parse:
                 fails += 1
                 continue
-            counter_urls[url] += query_time
-            urls_dict.setdefault(url, []).append(query_time)
-
             parsed_queries += 1
-            parsed_queries_time += query_time
+            parsed_queries_time += stri_parse['query_time']
+            counter_urls[stri_parse['url']] += stri_parse['query_time']
+            urls_dict.setdefault(stri_parse['url'], []).append(stri_parse['query_time'])
 
-        if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
-            return False, 'Number of failed operations exceeded the allowed threshold!'
+    if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
+        logging.info('Number of failed operations exceeded the allowed threshold!')
+        return
 
-        for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
-            count = len(urls_dict[key])
-            count_perc = count * 100 / (parsed_queries + fails)
-            time_perc = value * 100 / parsed_queries_time
-            time_avg = mean(urls_dict[key])
-            time_max = max(urls_dict[key])
-            time_med = median(urls_dict[key])
+    for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
+        report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
+        report_urls_list.append(report_url)
+    logging.info('Parsing has been successfully completed.')
+    return report_urls_list
 
-            report_url = {
-                'url': key,
-                'time_sum': round(value, 3),
-                'count': count,
-                'count_perc': round(count_perc, 3),
-                'time_perc': round(time_perc, 3),
-                'time_avg': round(time_avg, 3),
-
-                'time_max': round(time_max, 3),
-                'time_med': round(time_med, 3),
-            }
-            report_urls_list.append(report_url)
-        return report_urls_list, 'Parsing has been successfully completed.'
 
 def generate_report(parsed_list, report_name, template_name):
     try:
@@ -137,18 +145,18 @@ def generate_report(parsed_list, report_name, template_name):
             read_template = file.read()
     except Exception as ex:
         logging.error(ex)
-        return False, f"Report template '{template_name}' open error!"
+        return
 
     report = read_template.replace('$table_json', str(parsed_list))
-
     try:
         with open(report_name, 'w') as file:
             file.write(report)
     except Exception as ex:
         logging.error(ex)
-        return False, 'Report has been generated but not dumped!'
+        return
 
-    return True, f"Report '{report_name}' has been successfully dumped."
+    logging.info(f"Report '{report_name}' has been successfully dumped.")
+    return True
 
 
 def main():
@@ -168,27 +176,23 @@ def main():
     if os.path.exists(config['REPORT_DIR']):
         if os.path.exists(report_path):
             logging.info(f"Required report '{report_path}' already exists.")
-            sys.exit('Forced termination. No tasks!')
+            sys.exit('Forced termination!')
     else:
         os.makedirs(config['REPORT_DIR'])
 
-    # parsed_list, message = log_parser(last_log, config)
-    # if not parsed_list:
-    #     logging.error(message)
-    #     sys.exit('Something went wrong when parsing log file!')
-    # logging.info(message)
-    #
-    # template_name = 'report.html'
-    # if not os.path.exists(template_name):
-    #     logging.error(f"Report template '{template_name}' has not been found!")
-    #     sys.exit('Emergency stop!')
-    #
-    # status, message = generate_report(parsed_list, report_path, template_name)
-    # if not status:
-    #     logging.error(message)
-    #     sys.exit('Emergency stop!')
-    # logging.info(message)
-    # logging.info('Script has been completed.')
+    parsed_list = log_parser(last_log, config)
+    if not parsed_list:
+        sys.exit('Forced termination!')
+
+    template_name = 'report.html'
+    if not os.path.exists(template_name):
+        logging.error(f"Report template '{template_name}' has not been found!")
+        sys.exit('Emergency stop!')
+
+    status = generate_report(parsed_list, report_path, template_name)
+    if not status:
+        sys.exit('Emergency stop!')
+    logging.info('Script has been completed.')
 
 
 if __name__ == "__main__":
