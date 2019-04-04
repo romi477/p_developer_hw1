@@ -45,21 +45,23 @@ def update_config(conf, conf_path):
     else:
         raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
 
-def get_file_date(names, name='', date=''):
+def get_file_date(names):
+    name = date = ''
+    regex = r'nginx-access-ui.log-(\d{8})(?:\.tar.gz|\.tar.bz2)?$'
     for current_name in names:
-        try:
-            current_date = re.search(r'\d{8,}', current_name).group(0)
-        except:
+        search = re.match(regex, current_name)
+        if not search:
             continue
-        if len(current_date) == 8 and current_date > date:
+        if search[1] > date:
             name = current_name
-            date = current_date
+            date = search[1]
     return name, date
 
 def find_last_log(conf):
     log_dir = conf['LOG_DIR']
     try:
         files = os.listdir(log_dir)
+        print(type(files))
     except FileNotFoundError:
         logging.error(f"Logs directory '{log_dir}' does not exist!")
         return
@@ -68,16 +70,9 @@ def find_last_log(conf):
         logging.info(f"Logs directory '{log_dir}' is empty!")
         return
 
-    filter_files_gen = (file for file in files if re.match('nginx-access-ui', file))
-
-    file, file_date = get_file_date(filter_files_gen)
+    file, file_date = get_file_date(files)
     if not file:
         logging.info('No one log file for parsing has been found!')
-        return
-
-    file_ext = file.split('.')[-1]
-    if file_ext not in ['gz', 'bz2', f'log-{file_date}']:
-        logging.info(f"Found log file '{file}' has unsupported data format!")
         return
 
     try:
@@ -87,20 +82,22 @@ def find_last_log(conf):
         return
 
     format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
-    Logfile = namedtuple('Logfile', 'name date ext')
-    log_file = Logfile(file, format_file_date, file_ext)
+    Logfile = namedtuple('Logfile', 'name date')
+    log_file = Logfile(file, format_file_date)
     logging.info(f"Required log file '{log_file}' has been found.")
     return log_file
 
+
 def parse_string(stri):
-    stri = stri.decode('utf-8')
+    decode_stri = stri.decode('utf-8')
     try:
-        url = stri.split('HTTP')[0].split()[-1]
-        query_time = float(stri.rsplit(maxsplit=1)[-1])
+        url = decode_stri.split('HTTP')[0].split()[-1]
+        query_time = float(decode_stri.rsplit(maxsplit=1)[-1])
     except Exception as ex:
         logging.error(ex)
-        return False
-    return {'url': url, 'query_time': query_time}
+        return
+    StriParse = namedtuple('StriParse', 'url query_time')
+    return StriParse(url, query_time)
 
 def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
     count = len(urls_dict[key])
@@ -128,7 +125,7 @@ def log_parser(log_file, conf):
     counter_urls = Counter()
     parsed_queries, parsed_queries_time, fails = 0, 0, 0
 
-    operator = gzip.open if log_file.ext == 'gz' else bz2.open if log_file.ext == 'bz2' else open
+    operator = gzip.open if log_file.name.endswith('gz') else bz2.open if log_file.name.endswith('bz2') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
         for stri in (s for s in file):
             stri_parse = parse_string(stri)
@@ -136,9 +133,9 @@ def log_parser(log_file, conf):
                 fails += 1
                 continue
             parsed_queries += 1
-            parsed_queries_time += stri_parse['query_time']
-            counter_urls[stri_parse['url']] += stri_parse['query_time']
-            urls_dict.setdefault(stri_parse['url'], []).append(stri_parse['query_time'])
+            parsed_queries_time += stri_parse.query_time
+            counter_urls[stri_parse.url] += stri_parse.query_time
+            urls_dict.setdefault(stri_parse.url, []).append(stri_parse.query_time)
 
     if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
         logging.info('Number of failed operations exceeded the allowed threshold!')
