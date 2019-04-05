@@ -61,7 +61,6 @@ def find_last_log(conf):
     log_dir = conf['LOG_DIR']
     try:
         files = os.listdir(log_dir)
-        print(type(files))
     except FileNotFoundError:
         logging.error(f"Logs directory '{log_dir}' does not exist!")
         return
@@ -84,7 +83,7 @@ def find_last_log(conf):
     format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
     Logfile = namedtuple('Logfile', 'name date')
     log_file = Logfile(file, format_file_date)
-    logging.info(f"Required log file '{log_file}' has been found.")
+    logging.info(f"Required log file '{log_file.name}' has been found.")
     return log_file
 
 
@@ -95,9 +94,8 @@ def parse_string(stri):
         query_time = float(decode_stri.rsplit(maxsplit=1)[-1])
     except Exception as ex:
         logging.error(ex)
-        return
-    StriParse = namedtuple('StriParse', 'url query_time')
-    return StriParse(url, query_time)
+        return None, None
+    return url, query_time
 
 def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
     count = len(urls_dict[key])
@@ -128,14 +126,14 @@ def log_parser(log_file, conf):
     operator = gzip.open if log_file.name.endswith('gz') else bz2.open if log_file.name.endswith('bz2') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
         for stri in (s for s in file):
-            stri_parse = parse_string(stri)
-            if not stri_parse:
+            url, query_time = parse_string(stri)
+            if not url:
                 fails += 1
                 continue
             parsed_queries += 1
-            parsed_queries_time += stri_parse.query_time
-            counter_urls[stri_parse.url] += stri_parse.query_time
-            urls_dict.setdefault(stri_parse.url, []).append(stri_parse.query_time)
+            parsed_queries_time += query_time
+            counter_urls[url] += query_time
+            urls_dict.setdefault(url, []).append(query_time)
 
     if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
         logging.info('Number of failed operations exceeded the allowed threshold!')
