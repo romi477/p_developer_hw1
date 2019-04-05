@@ -14,6 +14,7 @@ config = {
     "LOG_DIR": "./log"
 }
 
+
 def set_logging(conf):
     logging.basicConfig(
         filename=conf.get('LOG_FILE'),
@@ -23,11 +24,13 @@ def set_logging(conf):
         datefmt='%Y.%m.%d %H:%M:%S',
     )
 
+
 def get_external_config():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', nargs='?', const='config.json')
     namespace = parser.parse_args()
     return namespace.config
+
 
 def update_config(conf, conf_path):
     if os.path.exists(conf_path) and os.path.getsize(conf_path) > 0:
@@ -45,17 +48,19 @@ def update_config(conf, conf_path):
     else:
         raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
 
+
 def get_file_date(names):
     name = date = ''
     regex = r'nginx-access-ui.log-(\d{8})(?:\.tar.gz|\.tar.bz2)?$'
     for current_name in names:
-        search = re.match(regex, current_name)
-        if not search:
+        current_search = re.match(regex, current_name)
+        if not current_search:
             continue
-        if search[1] > date:
+        if current_search[1] > date:
             name = current_name
-            date = search[1]
+            date = current_search[1]
     return name, date
+
 
 def find_last_log(conf):
     log_dir = conf['LOG_DIR']
@@ -97,6 +102,7 @@ def parse_string(stri):
         return None, None
     return url, query_time
 
+
 def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
     count = len(urls_dict[key])
     count_perc = count * 100 / (parsed_queries + fails)
@@ -117,11 +123,12 @@ def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, v
     }
     return report_url
 
+
 def log_parser(log_file, conf):
     urls_dict = {}
-    report_urls_list = []
     counter_urls = Counter()
-    parsed_queries, parsed_queries_time, fails = 0, 0, 0
+    report_urls_list = []
+    parsed_queries = parsed_queries_time = fails = 0
 
     operator = gzip.open if log_file.name.endswith('gz') else bz2.open if log_file.name.endswith('bz2') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
@@ -191,13 +198,9 @@ def main():
     if not parsed_list:
         sys.exit('Forced termination!')
 
-    template_name = 'report.html'
-    if not os.path.exists(template_name):
-        logging.error(f"Report template '{template_name}' has not been found!")
-        sys.exit('Emergency stop!')
-
-    status = generate_report(parsed_list, report_path, template_name)
+    status = generate_report(parsed_list, report_path, 'report.html')
     if not status:
+        logging.error('Creating report error!')
         sys.exit('Emergency stop!')
     logging.info('Script has been completed.')
 
