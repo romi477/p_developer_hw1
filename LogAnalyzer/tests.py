@@ -5,22 +5,22 @@ from log_analyzer import *
 class TestLogAnalyzer(unittest.TestCase):
 
     def test_update_config_wrong_external_config(self):
-        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_config.json')
-        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_dir/wrong_config.json')
+        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_config.json', 'config.json')
+        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_dir/wrong_config.json', 'config.json')
 
     def test_get_file_date(self):
         files1 = [
-            'nginx-access-ui.log-20160320',
+            'nginx-access-ui.log-20170320',
             'ngin-acces-ui.log-20220320',
             'ngin-acces-ui-log-20230320',
-            'nginx-access-ui.log-20170320.tar.bz2',
+            'nginx-access-ui.log-20170320.gz',
             'nginx-access-ui.log-20160221.tar.gz',
             'nginx-access-ui.log-20150412',
             'nginx-access-ui.log-20140412',
-            'nginx-access-ui.log-20180101.tar.gz',
-            'nginx-access-ui.log-20220912.tar.g',
-            'nginx-access-ui.log-20080226.tar.bz2',
-            'nginx-access-ui.log-20190805.tar.bz2',
+            'nginx-access-ui.log-20180101',
+            'nginx-access-ui.log-20220912.g',
+            'nginx-access-ui.log-20080226.tar.gz',
+            'nginx-access-ui.log-20190805.gz',
             'nginx-access-ui.log-20190805 ',
             'nginx-access-ui.log-20210226.tar',
         ]
@@ -28,17 +28,17 @@ class TestLogAnalyzer(unittest.TestCase):
             'ginx-access-ui.log-20160320',
             'nginx-access-ui.log-2022032',
             'ngin-acces-ui-log-20230320',
-            'nginx-access-ui.log-20170320.ta.bz2',
+            'nginx-access-ui.log-20170320.ta.gz',
             'nginx-access-ui.log-20160221.tar',
         ]
         files3 = []
 
-        self.assertEqual(get_file_date(files1), ('nginx-access-ui.log-20190805.tar.bz2', '20190805'))
-        self.assertIsInstance(get_file_date(files1), tuple)
-        self.assertIsInstance(get_file_date(files2), tuple)
-        self.assertIsInstance(get_file_date(files3), tuple)
-        self.assertEqual(get_file_date(files2), ('', ''))
-        self.assertEqual(get_file_date(files3), ('', ''))
+        self.assertEqual(filter_files(files1), ('nginx-access-ui.log-20190805.gz', '20190805'))
+        self.assertIsInstance(filter_files(files1), tuple)
+        self.assertIsInstance(filter_files(files2), tuple)
+        self.assertIsInstance(filter_files(files3), tuple)
+        self.assertEqual(filter_files(files2), ('', ''))
+        self.assertEqual(filter_files(files3), ('', ''))
 
     def test_find_last_log_wrong_logdir(self):
         self.assertIsNone(find_last_log({'LOG_DIR': 'log3'}))

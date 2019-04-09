@@ -32,8 +32,9 @@ def get_external_config():
     return namespace.config
 
 
-def update_config(conf, ext_conf, def_conf='config.json'):
+def update_config(conf, ext_conf, def_conf):
     current_config = ext_conf if ext_conf else def_conf
+    print('cur conf: ', current_config)
     if os.path.exists(current_config) and os.path.getsize(current_config) > 0:
         try:
             with open(current_config, 'r') as f:
@@ -52,7 +53,7 @@ def update_config(conf, ext_conf, def_conf='config.json'):
 
 def filter_files(files):
     name = date = ''
-    regex = r'nginx-access-ui.log-(\d{8})(?:\.tar.gz)?$'
+    regex = r'nginx-access-ui.log-(\d{8})(?:\.gz)?$'
     for current_name in files:
         current_search = re.match(regex, current_name)
         if not current_search:
@@ -177,7 +178,7 @@ def generate_report(parsed_list, report_name, template_name):
 
 def main():
     external_config = get_external_config()
-    update_config(config, external_config)
+    update_config(config, external_config, 'config.json')
 
     set_logging(config)
 
