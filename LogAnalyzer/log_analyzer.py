@@ -1,5 +1,5 @@
 import sys, os, argparse
-import gzip, bz2
+import gzip
 import json
 import re
 import logging
@@ -27,32 +27,33 @@ def set_logging(conf):
 
 def get_external_config():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', nargs='?', const='config.json')
+    parser.add_argument('--config', nargs='?')
     namespace = parser.parse_args()
     return namespace.config
 
 
-def update_config(conf, conf_path):
-    if os.path.exists(conf_path) and os.path.getsize(conf_path) > 0:
+def update_config(conf, ext_conf, def_conf='config.json'):
+    current_config = ext_conf if ext_conf else def_conf
+    if os.path.exists(current_config) and os.path.getsize(current_config) > 0:
         try:
-            with open(conf_path, 'r') as f:
-                external_config = json.load(f)
+            with open(current_config, 'r') as f:
+                extended_config = json.load(f)
         except Exception as ex:
-            raise Exception(f"External config '{conf_path}' has not been read.\n{ex}")
+            raise Exception(f"External config '{current_config}' has not been read.\n{ex}")
 
-        conf.update(external_config)
+        conf.update(extended_config)
         print('Config has been successfully updated!')
 
-    elif os.path.exists(conf_path) and os.path.getsize(conf_path) == 0:
-        print(f"External config '{conf_path}' is empty, but it is OK!")
+    elif os.path.exists(current_config) and os.path.getsize(current_config) == 0:
+        print(f"External config '{current_config}' is empty, but it is OK!")
     else:
-        raise FileNotFoundError(f"External config '{conf_path}' has not been found!")
+        raise FileNotFoundError(f"External config '{current_config}' has not been found!")
 
 
-def get_file_date(names):
+def filter_files(files):
     name = date = ''
-    regex = r'nginx-access-ui.log-(\d{8})(?:\.tar.gz|\.tar.bz2)?$'
-    for current_name in names:
+    regex = r'nginx-access-ui.log-(\d{8})(?:\.tar.gz)?$'
+    for current_name in files:
         current_search = re.match(regex, current_name)
         if not current_search:
             continue
@@ -74,7 +75,8 @@ def find_last_log(conf):
         logging.info(f"Logs directory '{log_dir}' is empty!")
         return
 
-    file, file_date = get_file_date(files)
+    file, file_date = filter_files(files)
+
     if not file:
         logging.info('No one log file for parsing has been found!')
         return
@@ -124,16 +126,16 @@ def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, v
     return report_url
 
 
-def log_parser(log_file, conf):
+def log_parser(log_file, conf, parse_func):
     urls_dict = {}
     counter_urls = Counter()
     report_urls_list = []
     parsed_queries = parsed_queries_time = fails = 0
 
-    operator = gzip.open if log_file.name.endswith('gz') else bz2.open if log_file.name.endswith('bz2') else open
+    operator = gzip.open if log_file.name.endswith('gz') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
-        for stri in (s for s in file):
-            url, query_time = parse_string(stri)
+        for stri in file:
+            url, query_time = parse_func(stri)
             if not url:
                 fails += 1
                 continue
@@ -174,10 +176,8 @@ def generate_report(parsed_list, report_name, template_name):
 
 
 def main():
-    external_config_path = get_external_config()
-
-    if external_config_path:
-        update_config(config, external_config_path)
+    external_config = get_external_config()
+    update_config(config, external_config)
 
     set_logging(config)
 
@@ -187,14 +187,15 @@ def main():
         sys.exit('Forced termination!')
 
     report_path = os.path.join(config['REPORT_DIR'], f'report-{last_log.date}.html')
-    if os.path.exists(config['REPORT_DIR']):
-        if os.path.exists(report_path):
-            logging.info(f"Required report '{report_path}' already exists.")
-            sys.exit('Forced termination!')
-    else:
-        os.makedirs(config['REPORT_DIR'])
 
-    parsed_list = log_parser(last_log, config)
+    if os.path.exists(report_path):
+        logging.info(f"Required report '{report_path}' already exists.")
+        sys.exit('Forced termination!')
+    else:
+        if not os.path.exists(config['REPORT_DIR']):
+            os.makedirs(config['REPORT_DIR'])
+
+    parsed_list = log_parser(last_log, config, parse_string)
     if not parsed_list:
         sys.exit('Forced termination!')
 
