@@ -34,7 +34,6 @@ def get_external_config():
 
 def update_config(conf, ext_conf, def_conf):
     current_config = ext_conf if ext_conf else def_conf
-    print('cur conf: ', current_config)
     if os.path.exists(current_config) and os.path.getsize(current_config) > 0:
         try:
             with open(current_config, 'r') as f:
@@ -49,9 +48,10 @@ def update_config(conf, ext_conf, def_conf):
         print(f"External config '{current_config}' is empty, but it is OK!")
     else:
         raise FileNotFoundError(f"External config '{current_config}' has not been found!")
+    return conf
 
 
-def filter_files(files):
+def extract_file(files):
     name = date = ''
     regex = r'nginx-access-ui.log-(\d{8})(?:\.gz)?$'
     for current_name in files:
@@ -76,30 +76,32 @@ def find_last_log(conf):
         logging.info(f"Logs directory '{log_dir}' is empty!")
         return
 
-    file, file_date = filter_files(files)
+    while True:
+        file, file_date = extract_file(files)
 
-    if not file:
-        logging.info('No one log file for parsing has been found!')
-        return
+        if not file:
+            logging.info('No one log file for parsing has been found!')
+            break
+        files.pop(files.index(file))
+        try:
+            parse_file_date = datetime.strptime(file_date, '%Y%m%d')
+        except Exception as ex:
+            logging.error(ex)
+            continue
 
+        format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
+        Logfile = namedtuple('Logfile', 'name date')
+        log_file = Logfile(file, format_file_date)
+        logging.info(f"Required log file '{log_file.name}' has been found.")
+
+        return log_file
+
+
+def parse_string(line):
+    decode_line = line.decode('utf-8')
     try:
-        parse_file_date = datetime.strptime(file_date, '%Y%m%d')
-    except Exception as ex:
-        logging.error(ex)
-        return
-
-    format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
-    Logfile = namedtuple('Logfile', 'name date')
-    log_file = Logfile(file, format_file_date)
-    logging.info(f"Required log file '{log_file.name}' has been found.")
-    return log_file
-
-
-def parse_string(stri):
-    decode_stri = stri.decode('utf-8')
-    try:
-        url = decode_stri.split('HTTP')[0].split()[-1]
-        query_time = float(decode_stri.rsplit(maxsplit=1)[-1])
+        url = decode_line.split('HTTP')[0].split()[-1]
+        query_time = float(decode_line.rsplit(maxsplit=1)[-1])
     except Exception as ex:
         logging.error(ex)
         return None, None
@@ -130,13 +132,13 @@ def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, v
 def log_parser(log_file, conf, parse_func):
     urls_dict = {}
     counter_urls = Counter()
-    report_urls_list = []
+    # report_urls_list = []
     parsed_queries = parsed_queries_time = fails = 0
 
     operator = gzip.open if log_file.name.endswith('gz') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
-        for stri in file:
-            url, query_time = parse_func(stri)
+        for line in file:
+            url, query_time = parse_func(line)
             if not url:
                 fails += 1
                 continue
@@ -148,12 +150,13 @@ def log_parser(log_file, conf, parse_func):
     if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
         logging.info('Number of failed operations exceeded the allowed threshold!')
         return
+    return urls_dict, counter_urls, parsed_queries, parsed_queries_time, fails
 
-    for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
-        report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
-        report_urls_list.append(report_url)
-    logging.info('Parsing has been successfully completed.')
-    return report_urls_list
+    # for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
+    #     report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
+    #     report_urls_list.append(report_url)
+    # logging.info('Parsing has been successfully completed.')
+    # return report_urls_list
 
 
 def generate_report(parsed_list, report_name, template_name):
@@ -178,25 +181,24 @@ def generate_report(parsed_list, report_name, template_name):
 
 def main():
     external_config = get_external_config()
-    update_config(config, external_config, 'config.json')
+    upd_config = update_config(config, external_config, 'config.json')
 
-    set_logging(config)
+    set_logging(upd_config)
 
-    last_log = find_last_log(config)
+    last_log = find_last_log(upd_config)
 
     if not last_log:
         sys.exit('Forced termination!')
 
-    report_path = os.path.join(config['REPORT_DIR'], f'report-{last_log.date}.html')
+    report_path = os.path.join(upd_config['REPORT_DIR'], f'report-{last_log.date}.html')
 
     if os.path.exists(report_path):
         logging.info(f"Required report '{report_path}' already exists.")
         sys.exit('Forced termination!')
-    else:
-        if not os.path.exists(config['REPORT_DIR']):
-            os.makedirs(config['REPORT_DIR'])
+    if not os.path.exists(upd_config['REPORT_DIR']):
+        os.makedirs(upd_config['REPORT_DIR'])
 
-    parsed_list = log_parser(last_log, config, parse_string)
+    parsed_list = log_parser(last_log, upd_config, parse_string)
     if not parsed_list:
         sys.exit('Forced termination!')
 
