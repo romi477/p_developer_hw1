@@ -4,6 +4,7 @@ import json
 import re
 import logging
 from datetime import datetime
+from copy import deepcopy
 from collections import namedtuple, Counter
 from statistics import mean, median
 
@@ -48,6 +49,7 @@ def update_config(conf, ext_conf, def_conf):
         print(f"External config '{current_config}' is empty, but it is OK!")
     else:
         raise FileNotFoundError(f"External config '{current_config}' has not been found!")
+
     return conf
 
 
@@ -82,11 +84,11 @@ def find_last_log(conf):
         if not file:
             logging.info('No one log file for parsing has been found!')
             break
-        files.pop(files.index(file))
         try:
             parse_file_date = datetime.strptime(file_date, '%Y%m%d')
         except Exception as ex:
             logging.error(ex)
+            files.remove(file)
             continue
 
         format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
@@ -95,17 +97,6 @@ def find_last_log(conf):
         logging.info(f"Required log file '{log_file.name}' has been found.")
 
         return log_file
-
-
-def parse_string(line):
-    decode_line = line.decode('utf-8')
-    try:
-        url = decode_line.split('HTTP')[0].split()[-1]
-        query_time = float(decode_line.rsplit(maxsplit=1)[-1])
-    except Exception as ex:
-        logging.error(ex)
-        return None, None
-    return url, query_time
 
 
 def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
@@ -129,10 +120,29 @@ def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, v
     return report_url
 
 
+def prepare_report_url_list(conf, urls_dict, counter_urls, parsed_queries, parsed_queries_time, fails):
+    report_urls_list = []
+    for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
+        report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
+        report_urls_list.append(report_url)
+    logging.info('Parsing has been successfully completed.')
+    return report_urls_list
+
+
+def parse_string(line):
+    decode_line = line.decode('utf-8')
+    try:
+        url = decode_line.split('HTTP')[0].split()[-1]
+        query_time = float(decode_line.rsplit(maxsplit=1)[-1])
+    except Exception as ex:
+        logging.error(ex)
+        return None, None
+    return url, query_time
+
+
 def log_parser(log_file, conf, parse_func):
     urls_dict = {}
     counter_urls = Counter()
-    # report_urls_list = []
     parsed_queries = parsed_queries_time = fails = 0
 
     operator = gzip.open if log_file.name.endswith('gz') else open
@@ -151,12 +161,6 @@ def log_parser(log_file, conf, parse_func):
         logging.info('Number of failed operations exceeded the allowed threshold!')
         return
     return urls_dict, counter_urls, parsed_queries, parsed_queries_time, fails
-
-    # for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
-    #     report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
-    #     report_urls_list.append(report_url)
-    # logging.info('Parsing has been successfully completed.')
-    # return report_urls_list
 
 
 def generate_report(parsed_list, report_name, template_name):
@@ -181,7 +185,7 @@ def generate_report(parsed_list, report_name, template_name):
 
 def main():
     external_config = get_external_config()
-    upd_config = update_config(config, external_config, 'config.json')
+    upd_config = update_config(deepcopy(config), external_config, 'config.json')
 
     set_logging(upd_config)
 
@@ -198,11 +202,13 @@ def main():
     if not os.path.exists(upd_config['REPORT_DIR']):
         os.makedirs(upd_config['REPORT_DIR'])
 
-    parsed_list = log_parser(last_log, upd_config, parse_string)
-    if not parsed_list:
+    parsed_params = log_parser(last_log, upd_config, parse_string)
+    if not parsed_params:
         sys.exit('Forced termination!')
 
-    status = generate_report(parsed_list, report_path, 'report.html')
+    report_url_list = prepare_report_url_list(upd_config, *parsed_params)
+
+    status = generate_report(report_url_list, report_path, 'report.html')
     if not status:
         logging.error('Creating report error!')
         sys.exit('Emergency stop!')
@@ -212,5 +218,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as ex:
-        logging.error(ex)
+    except:
+        logging.exception('Fatal error!')

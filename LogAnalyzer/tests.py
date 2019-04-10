@@ -33,12 +33,12 @@ class TestLogAnalyzer(unittest.TestCase):
         ]
         files3 = []
 
-        self.assertEqual(filter_files(files1), ('nginx-access-ui.log-20190805.gz', '20190805'))
-        self.assertIsInstance(filter_files(files1), tuple)
-        self.assertIsInstance(filter_files(files2), tuple)
-        self.assertIsInstance(filter_files(files3), tuple)
-        self.assertEqual(filter_files(files2), ('', ''))
-        self.assertEqual(filter_files(files3), ('', ''))
+        self.assertEqual(extract_file(files1), ('nginx-access-ui.log-20190805.gz', '20190805'))
+        self.assertIsInstance(extract_file(files1), tuple)
+        self.assertIsInstance(extract_file(files2), tuple)
+        self.assertIsInstance(extract_file(files3), tuple)
+        self.assertEqual(extract_file(files2), ('', ''))
+        self.assertEqual(extract_file(files3), ('', ''))
 
     def test_find_last_log_wrong_logdir(self):
         self.assertIsNone(find_last_log({'LOG_DIR': 'log3'}))
