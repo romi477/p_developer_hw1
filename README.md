@@ -20,8 +20,6 @@
 
     $ python log_analyzer.py --config [external_config_path]
 
-Если выполненить только с флагом --config, используется дефолтный config.json в корне.
-
 Запуск тестов:
 
     $ python -m unittest tests.TestLogAnalyzer

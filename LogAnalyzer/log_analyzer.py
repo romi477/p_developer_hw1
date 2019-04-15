@@ -28,27 +28,26 @@ def set_logging(conf):
 
 def get_external_config():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', nargs='?')
+    parser.add_argument('--config', nargs='?', default='config.json')
     namespace = parser.parse_args()
     return namespace.config
 
 
-def update_config(conf, ext_conf, def_conf):
-    current_config = ext_conf if ext_conf else def_conf
-    if os.path.exists(current_config) and os.path.getsize(current_config) > 0:
+def update_config(conf, ext_conf):
+    if os.path.exists(ext_conf) and os.path.getsize(ext_conf) > 0:
         try:
-            with open(current_config, 'r') as f:
+            with open(ext_conf, 'r') as f:
                 extended_config = json.load(f)
         except Exception as ex:
-            raise Exception(f"External config '{current_config}' has not been read.\n{ex}")
+            raise Exception(f"External config '{ext_conf}' has not been read.\n{ex}")
 
         conf.update(extended_config)
         print('Config has been successfully updated!')
 
-    elif os.path.exists(current_config) and os.path.getsize(current_config) == 0:
-        print(f"External config '{current_config}' is empty, but it is OK!")
+    elif os.path.exists(ext_conf) and os.path.getsize(ext_conf) == 0:
+        print(f"External config '{ext_conf}' is empty, but it is OK!")
     else:
-        raise FileNotFoundError(f"External config '{current_config}' has not been found!")
+        raise FileNotFoundError(f"External config '{ext_conf}' has not been found!")
 
     return conf
 
@@ -125,7 +124,7 @@ def prepare_report_url_list(conf, urls_dict, counter_urls, parsed_queries, parse
     for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
         report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
         report_urls_list.append(report_url)
-    logging.info('Parsing has been successfully completed.')
+    logging.info('Parsed data have been serialized.')
     return report_urls_list
 
 
@@ -158,8 +157,8 @@ def log_parser(log_file, conf, parse_func):
             urls_dict.setdefault(url, []).append(query_time)
 
     if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
-        logging.info('Number of failed operations exceeded the allowed threshold!')
-        return
+        raise ValueError('Number of failed operations exceeded the allowed threshold!')
+    logging.info('Parsing has been successfully completed.')
     return urls_dict, counter_urls, parsed_queries, parsed_queries_time, fails
 
 
@@ -167,25 +166,26 @@ def generate_report(parsed_list, report_name, template_name):
     try:
         with open(template_name, 'r', encoding='utf-8') as file:
             read_template = file.read()
-    except Exception as ex:
-        logging.error(ex)
-        return
+    except Exception:
+        logging.error('Report template error!')
+        raise
 
     report = read_template.replace('$table_json', str(parsed_list))
     try:
-        with open(report_name, 'w') as file:
+        with open(f'{report_name}.tmp', 'w') as file:
             file.write(report)
     except Exception as ex:
         logging.error(ex)
-        return
-
+        raise
+    os.rename(f'{report_name}.tmp', report_name)
     logging.info(f"Report '{report_name}' has been successfully dumped.")
-    return True
 
 
 def main():
     external_config = get_external_config()
-    upd_config = update_config(deepcopy(config), external_config, 'config.json')
+    if not external_config:
+        raise ValueError('argument --config: expected at least one argument!')
+    upd_config = update_config(deepcopy(config), external_config)
 
     set_logging(upd_config)
 
@@ -203,15 +203,11 @@ def main():
         os.makedirs(upd_config['REPORT_DIR'])
 
     parsed_params = log_parser(last_log, upd_config, parse_string)
-    if not parsed_params:
-        sys.exit('Forced termination!')
 
     report_url_list = prepare_report_url_list(upd_config, *parsed_params)
 
-    status = generate_report(report_url_list, report_path, 'report.html')
-    if not status:
-        logging.error('Creating report error!')
-        sys.exit('Emergency stop!')
+    generate_report(report_url_list, report_path, 'report.html')
+
     logging.info('Script has been completed.')
 
 
