@@ -5,8 +5,8 @@ from log_analyzer import *
 class TestLogAnalyzer(unittest.TestCase):
 
     def test_update_config_wrong_external_config(self):
-        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_config.json', 'config.json')
-        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_dir/wrong_config.json', 'config.json')
+        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_config.json')
+        with self.assertRaises(FileNotFoundError): update_config(config, 'wrong_dir/wrong_config.json')
 
     def test_get_file_date(self):
         files1 = [
@@ -33,7 +33,7 @@ class TestLogAnalyzer(unittest.TestCase):
         ]
         files3 = []
 
-        self.assertEqual(extract_file(files1), ('nginx-access-ui.log-20190805.gz', '20190805'))
+        self.assertEqual(extract_file(files1), ('nginx-access-ui.log-20190805.gz', '2019.08.05'))
         self.assertIsInstance(extract_file(files1), tuple)
         self.assertIsInstance(extract_file(files2), tuple)
         self.assertIsInstance(extract_file(files3), tuple)
@@ -48,8 +48,8 @@ class TestLogAnalyzer(unittest.TestCase):
         self.assertEqual(parse_string(b'0x2f6x0x0x02e0e0e34'), (None, None))
 
     def test_generate_report_wrong_templates(self):
-        self.assertIsNone(generate_report(['foo', 'bar'], 'test_report.html', 'wrong_report.html'))
-        self.assertIsNone(generate_report(['foo', 'bar'], '', 'report.html'))
+        with self.assertRaises(FileNotFoundError): generate_report(['foo', 'bar'], 'test_report.html', 'wrong_report.html')
+        with self.assertRaises(FileNotFoundError): generate_report(['foo', 'bar'], '', 'report.html')
 
 if __name__ == '__main__':
     unittest.main()

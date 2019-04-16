@@ -59,9 +59,14 @@ def extract_file(files):
         current_search = re.match(regex, current_name)
         if not current_search:
             continue
-        if current_search[1] > date:
+        try:
+            parse_file_date = datetime.strptime(current_search[1], '%Y%m%d')
+        except ValueError:
+            continue
+        format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
+        if format_file_date > date:
             name = current_name
-            date = current_search[1]
+            date = format_file_date
     return name, date
 
 
@@ -77,25 +82,17 @@ def find_last_log(conf):
         logging.info(f"Logs directory '{log_dir}' is empty!")
         return
 
-    while True:
-        file, file_date = extract_file(files)
+    file, file_date = extract_file(files)
 
-        if not file:
-            logging.info('No one log file for parsing has been found!')
-            break
-        try:
-            parse_file_date = datetime.strptime(file_date, '%Y%m%d')
-        except Exception as ex:
-            logging.error(ex)
-            files.remove(file)
-            continue
+    if not file:
+        logging.info('No one log file for parsing has been found!')
+        return
 
-        format_file_date = datetime.strftime(parse_file_date, '%Y.%m.%d')
-        Logfile = namedtuple('Logfile', 'name date')
-        log_file = Logfile(file, format_file_date)
-        logging.info(f"Required log file '{log_file.name}' has been found.")
+    Logfile = namedtuple('Logfile', 'name date')
+    log_file = Logfile(file, file_date)
+    logging.info(f"Required log file '{log_file.name}' has been found.")
 
-        return log_file
+    return log_file
 
 
 def serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value):
@@ -184,7 +181,7 @@ def generate_report(parsed_list, report_name, template_name):
 def main():
     external_config = get_external_config()
     if not external_config:
-        raise ValueError('argument --config: expected at least one argument!')
+        raise ValueError('argument "--config" expected at least one argument!')
     upd_config = update_config(deepcopy(config), external_config)
 
     set_logging(upd_config)
@@ -215,4 +212,4 @@ if __name__ == "__main__":
     try:
         main()
     except:
-        logging.exception('Fatal error!')
+        logging.exception('Critical error!')
