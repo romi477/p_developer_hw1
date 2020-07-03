@@ -1,29 +1,30 @@
-import sys, os, argparse
+import os
+import re
 import gzip
 import json
-import re
+import argparse
 import logging
-from datetime import datetime
 from copy import deepcopy
-from collections import namedtuple, Counter
+from datetime import datetime
 from statistics import mean, median
+from collections import namedtuple, Counter
 
 
 config = {
-    "REPORT_SIZE": 1000,
-    "REPORT_DIR": "./reports",
-    "LOG_DIR": "./log"
+    'REPORT_SIZE': 1000,
+    'REPORT_DIR': './reports',
+    'LOG_DIR': './log',
 }
 
 
-def set_logging(conf):
-    logging.basicConfig(
-        filename=conf.get('LOG_FILE'),
-        filemode='w',
-        level=conf.get('LOG_LEVEL', 'DEBUG'),
-        format='[%(asctime)s] %(levelname)s: %(message)s',
-        datefmt='%Y.%m.%d %H:%M:%S',
-    )
+_logger = logging.getLogger('log_analyzer')
+
+_handler = logging.StreamHandler()
+_handler.setLevel(logging.INFO)
+_format = logging.Formatter('[%(levelname)s] %(message)s')
+_handler.setFormatter(_format)
+
+_logger.addHandler(_handler)
 
 
 def get_external_config():
@@ -33,22 +34,38 @@ def get_external_config():
     return namespace.config
 
 
+def check_config_params(conf):
+    keys = [
+        'REPORT_SIZE',
+        'REPORT_DIR',
+        'LOG_DIR',
+        'LOG_FILE',
+        'LOG_LEVEL',
+        'TOTAL_FAILS',
+        'HTTP_CODE_SERIES',
+    ]
+    missed_keys = []
+    for key in keys:
+        if not conf.get(key):
+            missed_keys.append(key)
+    if missed_keys:
+        raise ValueError(f'Config file has missed keys: {", ".join(missed_keys)}.')
+
+
 def update_config(conf, ext_conf):
     if os.path.exists(ext_conf) and os.path.getsize(ext_conf) > 0:
         try:
             with open(ext_conf, 'r') as f:
                 extended_config = json.load(f)
         except Exception as ex:
-            raise Exception(f"External config '{ext_conf}' has not been read.\n{ex}")
-
+            raise Exception(f'External config "{ext_conf}" has not been read.\n{ex}')
         conf.update(extended_config)
-        print('Config has been successfully updated!')
-
+        _logger.info('Config has been successfully updated!')
     elif os.path.exists(ext_conf) and os.path.getsize(ext_conf) == 0:
-        print(f"External config '{ext_conf}' is empty, but it is OK!")
+        _logger.warning(f'External config "{ext_conf}" is empty.')
     else:
-        raise FileNotFoundError(f"External config '{ext_conf}' has not been found!")
-
+        raise FileNotFoundError(f'External config "{ext_conf}" has not been found!')
+    check_config_params(conf)
     return conf
 
 
@@ -75,23 +92,18 @@ def find_last_log(conf):
     try:
         files = os.listdir(log_dir)
     except FileNotFoundError:
-        logging.error(f"Logs directory '{log_dir}' does not exist!")
+        _logger.error(f'Logs directory "{log_dir}" does not exist!')
         return
-
     if not files:
-        logging.info(f"Logs directory '{log_dir}' is empty!")
+        _logger.info(f'Log directory "{log_dir}" is empty!')
         return
-
     file, file_date = extract_file(files)
-
     if not file:
-        logging.info('No one log file for parsing has been found!')
+        _logger.info('No one log file has been found for parsing!')
         return
-
     Logfile = namedtuple('Logfile', 'name date')
     log_file = Logfile(file, file_date)
-    logging.info(f"Required log file '{log_file.name}' has been found.")
-
+    _logger.info(f'Found log file "{file}"')
     return log_file
 
 
@@ -121,22 +133,22 @@ def prepare_report_url_list(conf, urls_dict, counter_urls, parsed_queries, parse
     for key, value in counter_urls.most_common(conf['REPORT_SIZE']):
         report_url = serialize_data(urls_dict, parsed_queries, parsed_queries_time, fails, key, value)
         report_urls_list.append(report_url)
-    logging.info('Parsed data have been serialized.')
+    _logger.info('Parsed data have been serialized.')
     return report_urls_list
 
 
-def parse_string(line):
-    decode_line = line.decode('utf-8')
+def parse_string(split_line):
     try:
-        url = decode_line.split('HTTP')[0].split()[-1]
-        query_time = float(decode_line.rsplit(maxsplit=1)[-1])
-    except Exception as ex:
-        logging.error(ex)
-        return None, None
-    return url, query_time
+        url = ' - '.join([split_line[4], split_line[5], split_line[-1]])
+        query_time = split_line[1]
+    except IndexError as ex:
+        _logger.error(ex)
+        return '', float()
+    return url, float(query_time)
 
 
-def log_parser(log_file, conf, parse_func):
+def log_parser(conf, log_file, parse_func):
+    _logger.info('processing ...')
     urls_dict = {}
     counter_urls = Counter()
     parsed_queries = parsed_queries_time = fails = 0
@@ -144,7 +156,18 @@ def log_parser(log_file, conf, parse_func):
     operator = gzip.open if log_file.name.endswith('gz') else open
     with operator(os.path.join(conf['LOG_DIR'], log_file.name), 'rb') as file:
         for line in file:
-            url, query_time = parse_func(line)
+            decode_line = line.decode('utf-8')
+            split_line = decode_line.split()
+            if len(conf['HTTP_CODE_SERIES']) == 3:
+                if split_line[-1] != conf['HTTP_CODE_SERIES']:
+                    continue
+            elif len(conf['HTTP_CODE_SERIES']) == 1:
+                if not split_line[-1].startswith(conf['HTTP_CODE_SERIES']):
+                    continue
+            else:
+                _logger.error('Config has wrong value of "HTTP_CODE_SERIES".')
+                break
+            url, query_time = parse_func(split_line)
             if not url:
                 fails += 1
                 continue
@@ -152,10 +175,11 @@ def log_parser(log_file, conf, parse_func):
             parsed_queries_time += query_time
             counter_urls[url] += query_time
             urls_dict.setdefault(url, []).append(query_time)
-
+    if not parsed_queries:
+        raise ValueError('No one url had been parsed from log file.')
     if fails * 100 / (parsed_queries + fails) >= conf.get('TOTAL_FAILS', 51):
         raise ValueError('Number of failed operations exceeded the allowed threshold!')
-    logging.info('Parsing has been successfully completed.')
+    _logger.info('Parsing has been successfully completed.')
     return urls_dict, counter_urls, parsed_queries, parsed_queries_time, fails
 
 
@@ -164,52 +188,43 @@ def generate_report(parsed_list, report_name, template_name):
         with open(template_name, 'r', encoding='utf-8') as file:
             read_template = file.read()
     except Exception:
-        logging.error('Report template error!')
+        _logger.error('Report template open error.')
         raise
-
     report = read_template.replace('$table_json', str(parsed_list))
     try:
         with open(f'{report_name}.tmp', 'w') as file:
             file.write(report)
     except Exception as ex:
-        logging.error(ex)
+        _logger.error(ex)
         raise
     os.rename(f'{report_name}.tmp', report_name)
-    logging.info(f"Report '{report_name}' has been successfully dumped.")
+    _logger.info(f'Report "{report_name}" has been successfully dumped.')
 
 
 def main():
     external_config = get_external_config()
     if not external_config:
         raise ValueError('argument "--config" expected at least one argument!')
-    upd_config = update_config(deepcopy(config), external_config)
-
-    set_logging(upd_config)
-
-    last_log = find_last_log(upd_config)
-
+    _config = update_config(deepcopy(config), external_config)
+    
+    last_log = find_last_log(_config)
     if not last_log:
-        sys.exit('Forced termination!')
-
-    report_path = os.path.join(upd_config['REPORT_DIR'], f'report-{last_log.date}.html')
-
-    if os.path.exists(report_path):
-        logging.info(f"Required report '{report_path}' already exists.")
-        sys.exit('Forced termination!')
-    if not os.path.exists(upd_config['REPORT_DIR']):
-        os.makedirs(upd_config['REPORT_DIR'])
-
-    parsed_params = log_parser(last_log, upd_config, parse_string)
-
-    report_url_list = prepare_report_url_list(upd_config, *parsed_params)
-
+        return
+    parsed_params = log_parser(_config, last_log, parse_string)
+    report_url_list = prepare_report_url_list(_config, *parsed_params)
+    
+    if not os.path.exists(_config['REPORT_DIR']):
+        os.makedirs(_config['REPORT_DIR'])
+    report_path = os.path.join(
+        _config['REPORT_DIR'],
+        f'report-{last_log.date}-{_config["HTTP_CODE_SERIES"]}.html',
+    )
     generate_report(report_url_list, report_path, 'report.html')
+    
 
-    logging.info('Script has been completed.')
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     try:
         main()
-    except:
-        logging.exception('Critical error!')
+        _logger.info('Script ended.')
+    except Exception as ex:
+        _logger.exception(ex)

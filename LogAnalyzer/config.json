@@ -4,5 +4,6 @@
   "LOG_DIR": "./log",
   "LOG_FILE": "./logfile.log",
   "LOG_LEVEL": "DEBUG",
-  "TOTAL_FAILS": 51
+  "TOTAL_FAILS": 51,
+  "HTTP_CODE_SERIES": "499"
 }
